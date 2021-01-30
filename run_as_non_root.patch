@@ -1,0 +1,96 @@
+--- manifests/helm/templates/service.yaml	(date 1611981777380)
++++ manifests/helm/templates/service.yaml	(date 1611981777380)
+@@ -7,6 +7,6 @@
+   ports:
+   - port: 443
+     protocol: TCP
+-    targetPort: 443
++    targetPort: 8443
+   selector:
+     app: aws-secret-injector
+Index: manifests/helm/templates/deployment.yaml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- manifests/helm/templates/deployment.yaml	(date 1611981879983)
++++ manifests/helm/templates/deployment.yaml	(date 1611981879983)
+@@ -14,6 +14,8 @@
+       labels:
+         app: aws-secret-injector
+     spec:
++      securityContext:
++        fsGroup: 65534
+       volumes:
+       - name: certs
+         secret:
+@@ -21,6 +23,9 @@
+       containers:
+       - name: adm-controller
+         image: erousseau/aws-secrets-injector-adm-controller:v1.4
++        securityContext:
++          runAsUser: 1000
++          runAsGroup: 1000
+         volumeMounts:
+         - name: certs
+           mountPath: /tls
+@@ -30,5 +35,5 @@
+         - --tls-private-key-file=/tls/tls.key
+         - --init-container-image=erousseau/aws-secrets-injector-init-container:v1.4
+         ports:
+-        - containerPort: 443
++        - containerPort: 8443
+         imagePullPolicy: Always
+Index: admission-controller/pods.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- admission-controller/pods.go	(date 1611981625124)
++++ admission-controller/pods.go	(date 1611981625124)
+@@ -76,6 +76,7 @@
+     VolumeMounts []VolumeMount `json:"volumeMounts"`
+     Env []Env `json:"env"`
+     Resources Resources `json:"resources"`
++    SecurityContext SecurityContext `json:"securityContext"`
+ }
+
+ type EmptyDir struct {
+@@ -99,6 +100,15 @@
+     Value interface{} `json:"value"`
+ }
+
++/* Adding the security context to be embedded in to the secrets injector init container*/
++type SecurityContext struct {
++    RunAsUser int64 `json:"runAsUser"`
++    RunAsGroup int64 `json:"runAsGroup"`
++    AllowPrivilegeEscalation bool `json:"allowPrivilegeEscalation"`
++}
++
+
+@@ -240,6 +250,8 @@
+                 volumeMounts,
+                 env,
+                 Resources{Requests{"100m", "128Mi"}, Limits{"100m", "256Mi"}},
++                /* Run as non-root user */
++                SecurityContext{1000,1000,false},
+             },
+         })
+Index: admission-controller/main.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- admission-controller/main.go	(date 1611981684347)
++++ admission-controller/main.go	(date 1611981684347)
+@@ -41,7 +41,9 @@
+         "File containing the default x509 Certificate for HTTPS. (CA cert, if any, concatenated after server cert).")
+     flag.StringVar(&keyFile, "tls-private-key-file", "",
+         "File containing the default x509 private key matching --tls-cert-file.")
+-    flag.IntVar(&port, "port", 443,
++    /*Changing port as the admission controllef now runs as non-root and cannot
++    expose a server on a privileged port.  */
++    flag.IntVar(&port, "port", 8443,
+         "Secure port that the webhook listens on")
+     flag.StringVar(&initContainerImage, "init-container-image", "",
+         "Image to be used for the init container")

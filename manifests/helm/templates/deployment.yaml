@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: aws-secret-injector
+  name: aws-secret-injector
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: aws-secret-injector
+  template:
+    metadata:
+      labels:
+        app: aws-secret-injector
+    spec:
+      securityContext:
+        fsGroup: 65534
+      volumes:
+      - name: certs
+        secret:
+          secretName: aws-secret-injector-tls
+      containers:
+      - name: adm-controller
+        image: erousseau/aws-secrets-injector-adm-controller:v1.4
+        securityContext:
+          runAsUser: 1000
+          runAsGroup: 1000
+        volumeMounts:
+        - name: certs
+          mountPath: /tls
+          readOnly: true
+        args:
+        - --tls-cert-file=/tls/tls.crt
+        - --tls-private-key-file=/tls/tls.key
+        - --init-container-image=erousseau/aws-secrets-injector-init-container:v1.4
+        ports:
+        - containerPort: 8443
+        imagePullPolicy: Always
